@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/slab.h>
+#include <linux/kallsyms.h>
 #include "kpatch.h"
 
 static bool replace;
@@ -66,8 +67,38 @@ static ssize_t patch_enabled_store(struct kobject *kobj,
 
 	return count;
 }
+
+static ssize_t funcs_show(struct kobject *kobj,
+			  struct kobj_attribute *attr, char *buf)
+{
+	int i;
+	int ret = 0;
+	char symname[KSYM_NAME_LEN];
+	struct kpatch_func *func = kpmod.funcs;
+
+	for (i = 0; i < kpmod.num_funcs; i++, func++) {
+		if (func) {
+			sprint_symbol_no_offset(symname, func->old_addr);
+			// Currently the showed function names are confined
+			// in a PAGE_SIZE buffer that sysfs provided.
+			// TODO make each function had its own file in sysfs
+			ret = snprintf(buf, PAGE_SIZE, "%s %s 0x%lx -> 0x%lx\n",
+				       buf, symname, func->old_addr, func->new_addr);
+		}
+		else {
+			ret = snprintf(buf, PAGE_SIZE, "%sfunc ptr is invalid\n",
+				       buf);
+			break;
+		}
+	}
+	return ret;
+}
+
 static struct kobj_attribute patch_enabled_attr =
 	__ATTR(enabled, 0644, patch_enabled_show, patch_enabled_store);
+
+static struct kobj_attribute patch_funcs_attr =
+	__ATTR_RO(funcs);
 
 static int __init patch_init(void)
 {
@@ -90,6 +121,10 @@ static int __init patch_init(void)
 	if (ret)
 		goto err_put;
 
+	ret = sysfs_create_file(patch_kobj, &patch_funcs_attr.attr);
+	if (ret)
+		goto err_put;
+
 	ret = kpatch_register(&kpmod, replace);
 	if (ret)
 		goto err_sysfs;
@@ -108,6 +143,7 @@ static void __exit patch_exit(void)
 {
 	WARN_ON(kpmod.enabled);
 	sysfs_remove_file(patch_kobj, &patch_enabled_attr.attr);
+	sysfs_remove_file(patch_kobj, &patch_funcs_attr.attr);
 	kobject_put(patch_kobj);
 }
 
