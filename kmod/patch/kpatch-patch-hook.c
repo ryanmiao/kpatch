@@ -193,11 +193,11 @@ static void __exit patch_exit(void)
 {
 	int i;
 	WARN_ON(kpmod.enabled);
-	sysfs_remove_file(patch_kobj, &patch_enabled_attr.attr.attr);
 	for (i = 0; i < kpmod.num_funcs; i++) {
-	        sysfs_remove_file(patch_kobj, &patch_funcs_attr[i].attr.attr);
+	        sysfs_remove_file(funcs_kobj, &patch_funcs_attr[i].attr.attr);
 	}
-
+	kobject_put(funcs_kobj);
+	sysfs_remove_file(patch_kobj, &patch_enabled_attr.attr.attr);
 	kobject_put(patch_kobj);
 	kfree(patch_funcs_attr);
 	kfree(kpmod.funcs);
