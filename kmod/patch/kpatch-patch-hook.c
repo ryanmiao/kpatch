@@ -139,17 +139,11 @@ static int __init patch_init(void)
 		goto err_free;
 	}
 
-	funcs_kobj = kobject_create_and_add("funcs", patch_kobj);
-	if (!funcs_kobj) {
-		ret = -ENOMEM;
-		goto err_free;
-	}
-
-	ret = sysfs_create_file(patch_kobj, &patch_enabled_attr.attr.attr);
+	ret = sysfs_create_file(patch_kobj, &patch_enabled_attr.attr);
 	if (ret)
 		goto err_put;
 
-	funcs_kobj = kobject_create_and_add("funcs", patch_kobj);
+	funcs_kobj = kobject_create_and_add("functions", patch_kobj);
 	if (!funcs_kobj) {
 		ret = -ENOMEM;
 		goto err_sysfs;
@@ -206,13 +200,7 @@ err_put2:
 	}
 	kobject_put(funcs_kobj);
 err_sysfs:
-	sysfs_remove_file(patch_kobj, &patch_enabled_attr.attr.attr);
-err_put2:
-	for (i--; i >= 0; i--) {
-	        sysfs_remove_file(funcs_kobj,
-				  &patch_funcs_attr[i].attr.attr);
-	}
-	kobject_put(funcs_kobj);
+	sysfs_remove_file(patch_kobj, &patch_enabled_attr.attr);
 err_put:
 	kobject_put(patch_kobj);
 err_free:
