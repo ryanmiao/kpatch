@@ -36,8 +36,8 @@ static struct kobject *patch_kobj;
 static struct kobject *functions_kobj;
 
 struct kpatch_func_obj {
-	struct kobject *func_kobj;
-	struct kpatch_patch *kaddr;
+	struct kobject func_kobj;
+	struct kpatch_patch *patch;
 	char name[KSYM_NAME_LEN];
 };
 
@@ -82,13 +82,12 @@ static ssize_t patch_old_addr_show(struct kobject *kobj,
 				   struct kobj_attribute *attr, char *buf)
 {
 	int ret = -EIO;
-	/*
+
 	struct kpatch_func_obj *pfunc =
-		container_of(attr, struct kpatch_func_obj, old_addr_attr);
+		container_of(kobj, struct kpatch_func_obj, func_kobj);
 
 	if (pfunc)
-	*/
-	ret = sprintf(buf, "patch_old_addr_show\n");
+		ret = sprintf("0x%lx\n", pfunc->patch->old_addr);
 
 	return ret;
 }
@@ -97,13 +96,12 @@ static ssize_t patch_new_addr_show(struct kobject *kobj,
 				   struct kobj_attribute *attr, char *buf)
 {
 	int ret = -EIO;
-	/*
+
 	struct kpatch_func_obj *pfunc =
-		container_of(attr, struct kpatch_func_obj, new_addr_attr);
+		container_of(kobj, struct kpatch_func_obj, func_kobj);
 
 	if (pfunc)
-	*/
-	ret = sprintf(buf, "patch_new_addr_show\n");
+		ret = sprintf("0x%lx\n", pfunc->patch->new_addr);
 
 	return ret;
 }
@@ -113,22 +111,30 @@ static struct kobj_attribute old_addr_attr =
 
 static struct kobj_attribute new_addr_attr =
 	__ATTR(new_addr, S_IRUGO, patch_new_addr_show, NULL);
-/*
-static ssize_t patch_func_show(struct kobject *kobj, struct attribute *attr,
-			       char *buf)
+
+static ssize_t patch_func_show(struct kobject *kobj,
+			       struct attribute *attr, char *buf)
 {
-	struct dump_attribute *attribute;
-	struct dump_obj *dump;
+	ssize_t ret = -EIO;
+	struct kobj_attribute *kattr =
+		container_of(attr, struct kobj_attribute, attr);
 
-	attribute = to_dump_attr(attr);
-	dump = to_dump_obj(kobj);
+	if (kattr->show)
+		ret = kattr->show(kobj, kattr, buf);
 
-	if (!attribute->show)
-		return -EIO;
-
-	return attribute->show(dump, attribute, buf);
+	return ret;
 }
-*/
+
+static const struct sysfs_ops patch_func_ops = {
+	.show		= patch_func_show,
+};
+
+static void patch_func_free(struct kobject *kobj)
+{
+	struct kpatch_func_obj *pfunc =
+		container_of(kobj, struct kpatch_func_obj, func_kobj);
+	kfree(pfunc);
+}
 
 static struct attribute *patch_func_attrs[] = {
 	&old_addr_attr.attr,
@@ -136,34 +142,27 @@ static struct attribute *patch_func_attrs[] = {
 	NULL,
 };
 
+static struct kobj_type patch_func_ktype = {
+	.release	= patch_func_free,
+	.sysfs_ops	= &patch_func_ops,
+	.default_attrs	= patch_func_attrs,
+};
+
 static const struct attribute_group patch_func_group = {
 	.attrs = patch_func_attrs,
 };
 
-/*
-static const struct sysfs_ops patch_func_ops = {
-	.show		= patch_func_show,
-};
-
-static struct kobj_type patch_func_ktype = {
-	.release	= patch_func_free,
-	.sysfs_ops	= &patch_func_ops,
-	.default_attrs	= rdev_default_attrs,
-};
-*/
 static struct kpatch_func_obj *patch_funcs = NULL;
 
 static int __init patch_init(void)
 {
 	int ret;
 	int i = 0, j = 0;
-	struct kobject *func_tmp;
 
 	kpmod.mod = THIS_MODULE;
 	kpmod.patches = (struct kpatch_patch *)&__kpatch_patches;
 	kpmod.patches_nr = (&__kpatch_patches_end - &__kpatch_patches) /
 			    sizeof(struct kpatch_patch);
-
 
 	patch_kobj = kobject_create_and_add(THIS_MODULE->name,
 					    kpatch_patches_kobj);
@@ -192,39 +191,17 @@ static int __init patch_init(void)
 	for (i = 0; i < kpmod.patches_nr; i++) {
 		sprint_symbol_no_offset(patch_funcs[i].name,
 					kpmod.patches[i].old_addr);
-		func_tmp = kobject_create_and_add(patch_funcs[i].name,
-						  functions_kobj);
-		if (!func_tmp) {
+		if (kobject_init_and_add(&patch_funcs[i].func_kobj,
+					 &patch_func_ktype, functions_kobj,
+					 "%s", patch_funcs[i].name) < 0) {
 			ret = -ENOMEM;
 			goto err_put2;
 		}
-		patch_funcs[i].func_kobj = func_tmp;
-		patch_funcs[i].kaddr = &kpmod.patches[i];
-		/*
-		memcpy(&patch_funcs[i].old_addr_attr, &old_addr_attr,
-		       sizeof(struct kobj_attribute));
-		memcpy(&patch_funcs[i].new_addr_attr, &new_addr_attr,
-		       sizeof(struct kobj_attribute));
-		patch_funcs[i].kaddr.old_addr = kpmod.patches[i].old_addr;
-		patch_funcs[i].kaddr.old_size = kpmod.patches[i].old_size;
-		patch_funcs[i].kaddr.new_addr = kpmod.patches[i].new_addr;
-		patch_funcs[i].kaddr.new_size = kpmod.patches[i].new_size;
-		*/
+		patch_funcs[i].patch = &kpmod.patches[i];
 	}
 
 	for (j = 0; j < kpmod.patches_nr; j++) {
-		/*
-		ret = sysfs_create_file(patch_funcs[j].func_kobj,
-					&patch_funcs[j].old_addr_attr.attr);
-		if (ret)
-			goto err_sysfs2;
-
-		ret = sysfs_create_file(patch_funcs[j].func_kobj,
-					&patch_funcs[j].new_addr_attr.attr);
-		if (ret)
-			goto err_sysfs2;
-		*/
-		ret = sysfs_create_group(patch_funcs[j].func_kobj,
+		ret = sysfs_create_group(&patch_funcs[j].func_kobj,
 					 &patch_func_group);
 		if (ret)
 		  goto err_sysfs2;
@@ -238,18 +215,12 @@ static int __init patch_init(void)
 
 err_sysfs2:
 	for (j--; j >= 0; j--) {
-		/*
-	        sysfs_remove_file(patch_funcs[j].func_kobj,
-				  &patch_funcs[j].old_addr_attr.attr);
-	        sysfs_remove_file(patch_funcs[j].func_kobj,
-				  &patch_funcs[j].new_addr_attr.attr);
-		*/
-		sysfs_remove_group(patch_funcs[j].func_kobj,
+		sysfs_remove_group(&patch_funcs[j].func_kobj,
 				   &patch_func_group);
 	}
 err_put2:
 	for (i--; i >= 0; i--) {
-		kobject_put(patch_funcs[i].func_kobj);
+		kobject_put(&patch_funcs[i].func_kobj);
 	}
 	kobject_put(functions_kobj);
 err_sysfs:
@@ -267,16 +238,10 @@ static void __exit patch_exit(void)
 	WARN_ON(kpmod.enabled);
 
 	for (i = 0; i < kpmod.patches_nr; i++) {
-		/*
-		sysfs_remove_file(patch_funcs[i].func_kobj,
-				  &patch_funcs[i].old_addr_attr.attr);
-	        sysfs_remove_file(patch_funcs[i].func_kobj,
-				  &patch_funcs[i].new_addr_attr.attr);
-		*/
-		sysfs_remove_group(patch_funcs[i].func_kobj,
+		sysfs_remove_group(&patch_funcs[i].func_kobj,
 				   &patch_func_group);
 
-		kobject_put(patch_funcs[i].func_kobj);
+		kobject_put(&patch_funcs[i].func_kobj);
 	}
 
 	kobject_put(functions_kobj);
